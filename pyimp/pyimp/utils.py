@@ -1,7 +1,7 @@
 import os
 import subprocess
-import math
 import sys
+import importlib
 from typing import Union, List, Tuple
 
 class Utils:
@@ -12,9 +12,9 @@ class Utils:
         if self.PATH_TO_THONNYLIBFOLDER not in sys.path:
             sys.path.append(self.PATH_TO_THONNYLIBFOLDER)
             
-    def Check(self, library: str, install: bool, args: Union[List[Union[str, Tuple[str, str]]], str]) -> bool:
-        i_s = ""
+    def Check(self, library: str, install: bool, args: Union[List[Union[str, Tuple[str, str]]], str], caller_globals: dict = None) -> bool:
         try:
+            
             if isinstance(args, list):
                 imports = []
                 for i in args:
@@ -22,41 +22,42 @@ class Utils:
                         imports.append(f"{i[0]} as {i[1]}")
                     else:
                         imports.append(i)
-                i_s = f"from {library} import {', '.join(imports)}"
+                import_statement = f"from {library} import {', '.join(imports)}"
             elif isinstance(args, str):
-                arg = f" as {args}" if args else ""
-                i_s = f"import {library}{arg}"
+                import_statement = f"import {library} as {args}" if args else f"import {library}"
             else:
-                raise ValueError("Invalid type of values")
-            print(i_s)
-            exec(i_s, globals())
+                raise ValueError("Invalid args type")
             
-            if not ImportError or Exception:
-                return True
+            t_g = caller_globals if caller_globals is not None else globals()
+            print(f"Import attempt: {import_statement}")
+            exec(import_statement, t_g)
+            return True
 
-        except ImportError:
-            print("The library is not installed, if you choosed True in second argument, then it will install the package or library automatically")
+        except ImportError as e:
+            print(f"Import failed: {str(e)}")
             if install:
-                print("INSTALLING IN THONNY...")
-                result = subprocess.run([self.PATH_TO_THONNYPYTHON, '-m', 'pip', 'install', '--target', self.PATH_TO_THONNYLIBFOLDER, library],
-                               capture_output=True,
-                               text=True)
+                print(f"Installing {library}...")
+                result = subprocess.run(
+                    [self.PATH_TO_THONNYPYTHON, '-m', 'pip', 'install', '--target', self.PATH_TO_THONNYLIBFOLDER, library],
+                    capture_output=True,
+                    text=True
+                )
+                
                 if result.returncode != 0:
-                    print(f"Installation failed. Error: {result.stderr}")
+                    print(f"Install failed: {result.stderr}")
                     return False
-                print("Installation successful. Re-attempting import...")
-            
-            try:
-                exec(i_s, globals())
-                return True
-            except:
-                print("The installation of library failed, exiting the program...")
-                return False
-        
-util = Utils()
-a = util.Check("colorama", True, [("init", "c_init"), "Fore", "Style"])
-b = util.Check("pygame", True, "p")
-print(a, b)
-
-c_init()
-print(f"{Fore.RED}hi")
+                    
+                
+                for mod in list(sys.modules.keys()):
+                    if mod.startswith(library):
+                        del sys.modules[mod]
+                importlib.invalidate_caches()
+                
+                try:
+                    print("Re-attempting import...")
+                    exec(import_statement, t_g)
+                    return True
+                except Exception as e:
+                    print(f"Final import failed: {str(e)}")
+                    return False
+            return False
